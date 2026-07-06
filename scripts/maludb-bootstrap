@@ -221,11 +221,12 @@ done
 
 # pgaudit.log target classes — safe defaults; operators can narrow later.
 # 'read' is deliberately excluded: SESSION-logging every SELECT grew one
-# deployment's log to 19GB and filled the disk (2026-07-06). Matches
-# pgaudit_recommended_settings() in the extension. Add 'read' only for
-# compliance regimes that require it, paired with logrotate maxsize.
+# deployment's log to 19GB and filled the disk (2026-07-06). The class
+# set matches pgaudit_recommended_settings() in the extension
+# ('ddl,role,write'). Add 'read' only for compliance regimes that
+# require it, paired with a logrotate maxsize policy.
 cur_log="$(pg_conf_show pgaudit.log)"
-target_log='write, ddl, role, function'
+target_log='write, ddl, role'
 if [ "$cur_log" != "$target_log" ]; then
     need_root "pg_conftool pgaudit.log"
     pg_conftool "$PG_VER" "$PG_CLUSTER" set pgaudit.log "$target_log"

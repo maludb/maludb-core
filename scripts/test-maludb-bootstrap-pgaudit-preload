@@ -62,7 +62,7 @@ if [ "$cmd" = "show" ] && [ "$key" = "shared_preload_libraries" ]; then
 fi
 
 if [ "$cmd" = "show" ] && [ "$key" = "pgaudit.log" ]; then
-    printf "pgaudit.log = 'write, ddl, role, function'\n"
+    printf "pgaudit.log = 'write, ddl, role'\n"
     exit 0
 fi
 
