@@ -92,11 +92,11 @@ statements
 -- ---------------------------------------------------------------------
 SELECT maludb_graph_import('bad/ns', '{"nodes": [{"id": "x"}]}'::jsonb);
 ERROR:  graph_import: namespace must match ^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$ (got bad/ns)
-CONTEXT:  PL/pgSQL function _graph_import_for_schema(name,text,jsonb,jsonb) line 20 at RAISE
+CONTEXT:  PL/pgSQL function _graph_import_for_schema(name,text,jsonb,jsonb) line 22 at RAISE
 SQL function "maludb_graph_import" statement 1
 SELECT maludb_graph_import('ok-ns', '{"nodes": []}'::jsonb);
 ERROR:  graph_import: graph.nodes must be a non-empty array
-CONTEXT:  PL/pgSQL function _graph_import_for_schema(name,text,jsonb,jsonb) line 24 at RAISE
+CONTEXT:  PL/pgSQL function _graph_import_for_schema(name,text,jsonb,jsonb) line 26 at RAISE
 SQL function "maludb_graph_import" statement 1
 -- ---------------------------------------------------------------------
 -- 4. Cleanup.
