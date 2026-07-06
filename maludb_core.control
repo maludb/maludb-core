@@ -1,5 +1,5 @@
 comment = 'MaluDB memory core (R1.0 + R1.1 + Stages 2-7 + V3 platform Stages 8-15 + V4 PageIndex Stages 17-18 + V4 ChatIndex Stage 19 + V4-MC2DB-01 + V4-REST-01 + V4-CLI-01 + V4-SDK-01: AUTH SECRET API QUEUE CRON STOR REALTIME PRESENCE VEC EMBED RET OBS LOG BACKUP ENV PAGEINDEX + PAGEINDEX-PROMOTE + PAGEINDEX-DESCENT + CHATINDEX + CHATINDEX-APPEND + MC2DB-V4-COMPLETE + REST-V4 + CLI-V4 + SDK-V4)'
-default_version = '0.101.0'
+default_version = '0.102.0'
 module_pathname = '$libdir/maludb_core'
 relocatable = false
 schema = 'maludb_core'

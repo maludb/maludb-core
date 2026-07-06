@@ -70,7 +70,7 @@ SET search_path TO smp, maludb_core, public;
 SELECT object_count AS enable_object_count
 FROM maludb_core.enable_memory_schema();
 enable_object_count
-156
+162
 (1 row)
 INSERT INTO maludb_subject(subject_type, canonical_name, aliases, description)
 VALUES ('project', 'zozocal', ARRAY['zzc'], 'schema-memory pool search project')
@@ -242,7 +242,7 @@ forged_foreign_search_hits
 RESET ROLE;
 SET search_path TO maludb_core, public;
 DROP SCHEMA smp CASCADE;
-NOTICE:  drop cascades to 149 other objects
+NOTICE:  drop cascades to 155 other objects
 DETAIL:  drop cascades to view smp.maludb_subject
 drop cascades to view smp.maludb_verb
 drop cascades to view smp.maludb_subject_verb
@@ -343,7 +343,7 @@ drop cascades to function smp.maludb_svpor_attribute_set_provenance(bigint,text)
 drop cascades to function smp.maludb_attribute_template_create(text,text,text,text,text,text,text,text,jsonb,jsonb,integer)
 drop cascades to function smp.maludb_attribute_template_delete(bigint)
 drop cascades to function smp.maludb_attribute_check(text,bigint)
-and 49 other objects (see server log for list)
+and 55 other objects (see server log for list)
 DO $body$
 DECLARE
     v_schema name := 'smp';

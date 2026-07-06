@@ -7,7 +7,7 @@ WHERE n.nspname = 'maludb_core'
   AND c.relname LIKE 'malu$%';
  catalog_tables 
 ----------------
-            155
+            157
 (1 row)
 
 SELECT count(*) AS object_types FROM malu$object_type;
