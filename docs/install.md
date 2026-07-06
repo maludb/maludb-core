@@ -225,7 +225,7 @@ PASS  maludb_core 0.71.0 installed
 PASS  pgvector demo table reachable
 WARN  pgvector demo table empty (ok if no rows inserted yet)
 PASS  pgaudit present in shared_preload_libraries
-PASS  pgaudit.log = 'read, write, ddl, role, function'
+PASS  pgaudit.log = 'write, ddl, role, function'
 WARN  no GPU detected (CPU-only install — dev OK; production benchmarks want a GPU)
 PASS  model runtime stub mode functional
 PASS  14 maludb.r10 tools registered (13 R1.0 + 1 R1.1)

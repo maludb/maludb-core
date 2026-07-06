@@ -107,9 +107,19 @@ RLS in a follow-up. The mc2db dispatcher should populate
 **Status:** Closed by S7-2.c. `scripts/maludb-bootstrap` section 3a
 now uses `pg_conftool` to add `pgaudit` to
 `shared_preload_libraries` and set
-`pgaudit.log='read, write, ddl, role, function'`, then restarts
+`pgaudit.log='write, ddl, role, function'`, then restarts
 `postgresql@17-main`. Idempotent — skips if already configured.
 `scripts/maludb-validate` section 3a checks both GUCs after install.
+
+*Revised 2026-07-06: the original default also included `read`,
+which SESSION-logs every SELECT. On the artfin deployment a
+30-second e2e monitoring loop plus test runs grew
+`postgresql-17-main.log` to 19GB and filled the disk (weekly
+logrotate with `copytruncate` could no longer copy the file once the
+disk was full, so rotation stopped entirely). `read` is now excluded
+by default, matching the extension's `pgaudit_recommended_settings()`.
+Deployments that need read auditing for compliance should re-add it
+together with a logrotate `maxsize` policy (e.g. `maxsize 500M`).*
 
 **Severity at time of review:** medium.
 **Impact:** `shared_preload_libraries` is empty in the audited
