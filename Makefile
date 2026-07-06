@@ -107,6 +107,7 @@ DATA        = sql/extension/maludb_core--0.1.0.sql \
               sql/extension/maludb_core--0.100.0--0.101.0.sql \
               sql/extension/maludb_core--0.101.0--0.102.0.sql \
               sql/extension/maludb_core--0.102.0--0.103.0.sql \
+              sql/extension/maludb_core--0.103.0--0.104.0.sql \
               sql/extension/maludb_core--0.74.0.sql \
               sql/extension/maludb_core--0.75.0.sql \
               sql/extension/maludb_core--0.76.0.sql \
@@ -141,11 +142,12 @@ DATA        = sql/extension/maludb_core--0.1.0.sql \
               sql/extension/maludb_core--0.100.0.sql \
               sql/extension/maludb_core--0.101.0.sql \
               sql/extension/maludb_core--0.102.0.sql \
-              sql/extension/maludb_core--0.103.0.sql
+              sql/extension/maludb_core--0.103.0.sql \
+              sql/extension/maludb_core--0.104.0.sql
 MODULE_big  = maludb_core
 OBJS        = src/maludb_core.o src/maludb_vector.o src/maludb_search.o src/maludb_type.o src/maludb_topk.o src/maludb_ann.o src/maludb_atomic.o src/maludb_auth.o src/maludb_secret.o
 SHLIB_LINK  = -lcrypto -lcurl
-REGRESS     = load catalog vector_demo stage_boundary provider request session prompt_render end_to_end mc2db_catalog prompt_response_refinements r10_tools vector_search llm_rls prompt_variable bound_prompt prompt_approval response_accessors response_cache idempotency budget malu_vector_type parallel_vector_search local_ann memory_object_model verbatim_archive mdo_addressing object_grant payload_schema atomic_writes ingestion governance_audit bitemporal temporal_supersession svpor_organization maut_scoring lifecycle_salience graph_traversal text_search retrieval_planner query_hints authz_aware_retrieval workflow_extraction skill_runtime active_memory_pool episode_replay local_node_sync model_registry_blue_green adapter_capability advanced_mc2db_tools mc2db_invocation_rls auth_token secret_store rest_endpoint queue cron_schedule source_archive realtime_event pool_presence vector_filter embed_pipeline retrieval_envelope metrics_scrape log_drain backup_manifest preview_env c_hmac_jwt c_secret_resolver vector_bench page_index_catalog page_index_promote page_index_descent chat_index_catalog chat_index_append schema_memory_enablement schema_memory_ingestion schema_memory_pool_search skill_discovery skill_discovery_fork role_onboarding document_note_svpor_hints svpor_identifier_types svpor_relationship_search_phrases llm_chat_logs svpor_classifier_md svpor_subject_relationships api_helpers episode_subject semantic_entity agent_skill_distribution note_search skill_reindex document_reindex graph_path_unified graph_communities graph_import
+REGRESS     = load catalog vector_demo stage_boundary provider request session prompt_render end_to_end mc2db_catalog prompt_response_refinements r10_tools vector_search llm_rls prompt_variable bound_prompt prompt_approval response_accessors response_cache idempotency budget malu_vector_type parallel_vector_search local_ann memory_object_model verbatim_archive mdo_addressing object_grant payload_schema atomic_writes ingestion governance_audit bitemporal temporal_supersession svpor_organization maut_scoring lifecycle_salience graph_traversal text_search retrieval_planner query_hints authz_aware_retrieval workflow_extraction skill_runtime active_memory_pool episode_replay local_node_sync model_registry_blue_green adapter_capability advanced_mc2db_tools mc2db_invocation_rls auth_token secret_store rest_endpoint queue cron_schedule source_archive realtime_event pool_presence vector_filter embed_pipeline retrieval_envelope metrics_scrape log_drain backup_manifest preview_env c_hmac_jwt c_secret_resolver vector_bench page_index_catalog page_index_promote page_index_descent chat_index_catalog chat_index_append schema_memory_enablement schema_memory_ingestion schema_memory_pool_search skill_discovery skill_discovery_fork role_onboarding document_note_svpor_hints svpor_identifier_types svpor_relationship_search_phrases llm_chat_logs svpor_classifier_md svpor_subject_relationships api_helpers episode_subject semantic_entity agent_skill_distribution note_search skill_reindex document_reindex graph_path_unified graph_communities graph_import datamodel_refresh
 PG_CPPFLAGS = -std=gnu11
 
 PG_CONFIG  ?= /usr/lib/postgresql/17/bin/pg_config
