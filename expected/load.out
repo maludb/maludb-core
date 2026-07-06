@@ -6,11 +6,11 @@ NOTICE:  installing required extension "pg_trgm"
 NOTICE:  installing required extension "pgcrypto"
 SELECT extname, extversion FROM pg_extension WHERE extname = 'maludb_core';
 extname|extversion
-maludb_core|0.100.0
+maludb_core|0.102.0
 (1 row)
 SELECT maludb_core.maludb_core_version();
 maludb_core_version
-0.100.0
+0.102.0
 (1 row)
 SELECT maludb_core.maludb_core_release();
 maludb_core_release
