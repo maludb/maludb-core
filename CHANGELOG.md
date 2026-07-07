@@ -7,6 +7,95 @@ versions correspond to the extension migration chain
 
 ## Unreleased
 
+### 0.104.0
+
+**Relational data-model graph (DM-1).** Database objects become a graph
+namespace, so coding tools can ask "how do I join A to B" and "what breaks
+if I change X" through the same surface as the code graphs (Graphify
+Phase 6, cross-repo `docs/DATA-MODEL-GRAPH.md`).
+
+- **`maludb_datamodel_refresh`** (per-schema facade over
+  `_datamodel_refresh_for_schema`): introspects `pg_catalog` —
+  tables/views/matviews with columns + PK attributes, routines,
+  non-internal triggers, one node per schema — into node-link form and
+  feeds it through `_graph_import_for_schema`. Edges: `fk_references`,
+  `depends_on`, `triggers_on`, `belongs_to` (EXTRACTED); routine
+  reads/writes via a coarse `prosrc` scan (INFERRED). Visibility guard:
+  the tenant's own schema, `maludb_core`, or `public` only.
+- **`maludb_datamodel_describe`** (over `_datamodel_describe_for_schema`):
+  live columns/PK/FKs-in-and-out for one relation.
+- **`_graph_import_for_schema`** gains node `attributes` pass-through and
+  `options.resolve_external` — link endpoints matching an EXISTING subject
+  canonical name resolve, the cross-namespace stitch for DM-3 code mining.
+- New regress test `datamodel_refresh`; `enable_memory_schema` object
+  count 163 → 165. Re-run `enable_memory_schema('<tenant>')` after
+  upgrading.
+
+### 0.103.0
+
+**In-core graph import.** Graph import is core functionality, not an
+API-server feature: the whole node-link import moves into one SQL call so
+every API server exposes it as a thin wrapper.
+
+- **`maludb_graph_import(namespace, graph jsonb, options jsonb)`** (over
+  `_graph_import_for_schema`): validates the namespace and caps input at
+  50k nodes / 200k links; registers node types (sanitized slug) via
+  `register_subject_type_if_absent` with a `concept` fallback; maps
+  nodes → subjects (canonical `<ns>/<id>`, label alias, `graphify_*`
+  attributes) and links → SVO edges (EXTRACTED/INFERRED/AMBIGUOUS →
+  confidence 1.0/0.7/0.4, numeric confidence clamped) in ONE
+  `_memory_ingest_extraction_for_schema` call with per-item subtransaction
+  isolation — unknown endpoints are reported in `skipped`, not fatal.
+- Node community tags stored via `_community_replace_for_schema`.
+- Facade via `_enable_memory_schema_01030_facade` (object count
+  162 → 163).
+- New regress test `graph_import` (typed nodes, confidence mapping,
+  communities, unknown-endpoint skip, idempotent re-import, validation
+  errors).
+
+### 0.102.0
+
+**Graph communities + analytics + subject-type registration.** Graphify
+integration Phase 3 (cross-repo `docs/GRAPHIFY-INTEGRATION.md`).
+
+- **`malu$community` + `malu$community_membership`**: namespace-scoped
+  community sets over graph objects, standard RLS/grants idiom. Clustering
+  stays client-side (graphify ships Louvain); core stores results with
+  replace semantics per `(owner_schema, namespace)`.
+- **`maludb_community_replace`** (over `_community_replace_for_schema`):
+  members resolved by subject canonical name; unknown names reported, not
+  fatal. FK CASCADE keeps memberships consistent on replace.
+- **`uedge_degree(limit)`**: in/out/total degree over `malu$edge_unified`,
+  highest first (the god-nodes query).
+- **`uedge_surprises(namespace, limit)`**: cross-community edges ranked by
+  community-pair rarity (graphify's "surprising connections").
+- **`maludb_register_subject_type`** (over
+  `register_subject_type_if_absent`): tenant-callable idempotent
+  registration into the GLOBAL subject-type catalog
+  (`system_defined = false`, never overwrites) — unblocks graph importers
+  carrying real node types.
+- Facades via `_enable_memory_schema_01020_facade` (6 objects: 2 views,
+  4 functions), wired into `enable_memory_schema` (catalog tables
+  155 → 157, object count 156 → 162).
+- New regress test `graph_communities`.
+
+### 0.101.0
+
+**Unified-graph path finding.** Path finding existed over
+`malu$relationship_edge` (`graph_path`) but was never lifted onto the
+unified graph (Graphify integration Phase 1).
+
+- **`uedge_path(source, target, max_depth, direction, rel[])`** over
+  `malu$edge_unified`, built on `uedge_walk` the way `graph_path` is built
+  on `graph_walk`: filter the frontier to the target, order by depth so
+  the first row is a shortest path. Direction defaults to `both`; depth
+  capped [1,32].
+- **`maludb_graph_path`** tenant facade via
+  `_enable_memory_schema_01010_facade`, following the 0860 graph facade
+  idiom (object count 155 → 156).
+- New regress test `graph_path_unified` (diamond fixture: shortest-first,
+  rel filter, direction, isolation, depth budget, validation errors).
+
 ## v4.5.0 — 2026-06-17
 
 ### 0.100.0
