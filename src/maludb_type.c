@@ -16,6 +16,8 @@
  */
 
 #include "postgres.h"
+
+#include "common/shortest_dec.h"
 #include "maludb_varlena.h"
 #include "fmgr.h"
 #include "utils/array.h"
@@ -99,7 +101,14 @@ maludb_vector_in(PG_FUNCTION_ARGS)
 }
 
 /* ---------------------------------------------------------------------
- * malu_vector_out: format as "[f1, f2, ...]" using %g.
+ * malu_vector_out: format as "[f1, f2, ...]".
+ *
+ * Each element is printed as the shortest decimal that reads back as the
+ * same float4 (PostgreSQL's float_to_shortest_decimal_bufn, the routine
+ * float4out uses). It was "%g", six significant digits, which is not
+ * enough for a float4: every text read of an embedding -- pg_dump, COPY,
+ * a client reading the column -- returned a rounded copy, and a restore
+ * wrote that copy back (#31).
  * ------------------------------------------------------------------- */
 PG_FUNCTION_INFO_V1(maludb_vector_out);
 Datum
@@ -121,8 +130,12 @@ maludb_vector_out(PG_FUNCTION_ARGS)
     initStringInfo(&buf);
     appendStringInfoChar(&buf, '[');
     for (int32 i = 0; i < dim; i++) {
+        char    num[FLOAT_SHORTEST_DECIMAL_LEN];
+        int     n;
+
         if (i > 0) appendStringInfoString(&buf, ", ");
-        appendStringInfo(&buf, "%g", data[i]);
+        n = float_to_shortest_decimal_bufn(data[i], num);
+        appendBinaryStringInfo(&buf, num, n);
     }
     appendStringInfoChar(&buf, ']');
     PG_RETURN_CSTRING(buf.data);

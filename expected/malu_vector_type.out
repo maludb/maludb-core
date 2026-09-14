@@ -47,6 +47,31 @@ SELECT vector_dims('[]'::malu_vector)                     AS dim_0;
      0
 (1 row)
 
+-- ---------- text output reads back exactly (0.105.1, #31) -------------
+-- "%g" printed six significant digits; a float4 needs up to nine. Each value
+-- below lost bits through the old text form.
+SELECT '[0.123456789, 1e-7, 3.14159265, 16777217, -0.0, 1.17549435e-38]'::malu_vector::text AS shortest_roundtrip;
+                        shortest_roundtrip                        
+------------------------------------------------------------------
+ [0.12345679, 1e-07, 3.1415927, 1.6777216e+07, -0, 1.1754944e-38]
+(1 row)
+
+SELECT v::bytea = (v::text)::malu_vector::bytea AS text_roundtrip_is_exact
+  FROM (SELECT '[0.123456789, 1e-7, 3.14159265, 16777217, -0.0, 1.17549435e-38]'::malu_vector AS v) s;
+ text_roundtrip_is_exact 
+-------------------------
+ t
+(1 row)
+
+-- And across many values, not just chosen ones.
+SELECT count(*) FILTER (WHERE v::bytea <> (v::text)::malu_vector::bytea) AS inexact_roundtrips
+  FROM (SELECT ('[' || string_agg((sin(i * 1000 + d) * 1e3)::text, ',') || ']')::malu_vector AS v
+          FROM generate_series(1, 200) i, generate_series(1, 64) d GROUP BY i) s;
+ inexact_roundtrips 
+--------------------
+                  0
+(1 row)
+
 -- ---------- malformed input -------------------------------------------
 DO $$ BEGIN
     PERFORM '1, 2, 3'::malu_vector;
