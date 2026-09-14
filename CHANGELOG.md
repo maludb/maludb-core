@@ -7,6 +7,26 @@ versions correspond to the extension migration chain
 
 ## Unreleased
 
+### 0.105.1
+
+**`malu_vector` text output reads back exactly** (#31). Elements were printed
+with `%g` -- six significant digits, fewer than a float4 needs -- so every
+text read of an embedding returned a rounded copy. `pg_dump` and `COPY` wrote
+rounded vectors, and a restored or copied database held embeddings that
+differed from its source in every vector: measured on 2,000 random
+1536-dimension vectors, every one changed and cosine distances moved by up to
+5.5e-8, which left random top-10 results intact but reordered near-duplicates.
+Output now uses PostgreSQL's shortest round-trip formatting (the routine
+`float4out` uses), so `text::malu_vector` reproduces the stored bytes.
+
+- Stored values were never damaged; only their text form. A database dumped
+  under 0.105.0 holds rounded embeddings, and re-dumping it now keeps those
+  rounded values exactly -- it does not recover the originals.
+- Short values print as before (`[1, 2, 3]`, `[0.5, -0.5, 1.25]`); values that
+  needed more digits now print them (`0.12345679` rather than `0.123457`).
+- The change is in the shared library. The upgrade script only moves the
+  version, so a node and a database can say which behaviour they have.
+
 ### 0.105.0
 
 **pg_dump carries MaluDB's data** (#27). No `maludb_core` table was registered
