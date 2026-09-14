@@ -32,6 +32,7 @@
  */
 
 #include "postgres.h"
+#include "maludb_varlena.h"
 #include "fmgr.h"
 #include "executor/spi.h"
 #include "funcapi.h"
@@ -542,7 +543,8 @@ maludb_ann_build_c(PG_FUNCTION_ARGS)
 static void
 ann_decode_blob(bytea *blob, AnnGraph *g)
 {
-    char  *p   = VARDATA_ANY(blob);
+    /* The graph holds int32 headers, int64 ids and float embeddings. */
+    const char *p = maludb_varlena_aligned(blob);
     int32  len = VARSIZE_ANY_EXHDR(blob);
     if (len < ANN_HEADER_BYTES)
         ereport(ERROR, (errmsg("ann_search: blob too short (%d bytes)", len)));
@@ -563,7 +565,7 @@ ann_decode_blob(bytea *blob, AnnGraph *g)
     if ((size_t) len < ANN_HEADER_BYTES + ids_bytes + edges_bytes + emb_bytes)
         ereport(ERROR, (errmsg("ann_search: blob truncated")));
 
-    char *cur     = p + ANN_HEADER_BYTES;
+    char *cur     = (char *) p + ANN_HEADER_BYTES;  /* read-only use below */
     g->chunk_ids  = (int64 *) cur; cur += ids_bytes;
     g->edges      = (int32 *) cur; cur += edges_bytes;
     g->embeddings = (float *) cur;
@@ -618,7 +620,7 @@ maludb_ann_search_c(PG_FUNCTION_ARGS)
                      errmsg("ann_search: query dim %d != graph dim %d",
                             qlen / ANN_VEC_F32, g.dim)));
     }
-    const float *qvec = (const float *) VARDATA_ANY(qbytea);
+    const float *qvec = (const float *) maludb_varlena_aligned(qbytea);
 
     /* Empty graph → return nothing. */
     if (g.n_nodes == 0) return (Datum) 0;
