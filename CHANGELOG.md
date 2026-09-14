@@ -7,6 +7,52 @@ versions correspond to the extension migration chain
 
 ## Unreleased
 
+### 0.105.0
+
+**pg_dump carries MaluDB's data** (#27). No `maludb_core` table was registered
+with `pg_extension_config_dump`, so PostgreSQL treated every row as part of the
+extension and `pg_dump` left all of it out: logical backups, `pg_dump` /
+`pg_restore` migrations and database copies silently lost everything stored
+through MaluDB. This release registers the data tables, so a dump carries the
+rows written after install and none of the rows the extension installs itself.
+
+- **140 tables with no installed rows** are registered without a filter.
+- **12 tables that ship installed rows** are registered with a filter that
+  excludes them: `owner_schema <> 'maludb_core'` for `audit_event`,
+  `rest_endpoint`, `mc2db_server`, `mc2db_tool` and its three child tables;
+  `NOT system_defined` for the SVPOR subject and verb types, whose
+  `system_defined` **default changes from true to false** — a type inserted
+  directly was being marked built-in. The runtime registration functions
+  already passed false; a type inserted directly before 0.105.0 stays marked
+  and is not dumped.
+- **`system_defined`** is added to `metric_definition`, `safety_policy` and
+  `retry_policy`, which had no marker, and set on their installed rows by
+  natural key — never on every row present, since an upgraded database may
+  already hold customer rows.
+- **Not registered:** the three superuser-only catalogues (`object_type`,
+  `relationship_type`, `source_type`) and the two per-database secrets
+  (`secret_master_key`, `auth_pepper`). A dump never holds a key.
+- Every sequence behind a registered table is registered with it.
+- New regress test `dump_registration` fails on any table added later that is
+  neither registered nor listed as deliberately excluded, and on any installed
+  row a filter would let through.
+
+**What a dump still does not carry**, and what to do:
+
+- **MaluDB's in-database secret store and auth tokens do not survive a dump.**
+  Their rows arrive, but the target database's own master key and pepper cannot
+  decrypt or verify them. Re-create secrets and tokens after a restore.
+- **A change to an installed row** — disabling a built-in REST endpoint, say —
+  is not carried; the target keeps its own installed row.
+- **Extension triggers fire during `pg_restore`**, because `CREATE EXTENSION`
+  creates them — and the extension tables' foreign keys — before the data is
+  loaded. Measured: restoring a database with one SVPOR subject re-queued its
+  embedding from the subject trigger, and the dumped `malu$embedding_dirty` row
+  then failed its `COPY` on a duplicate key. `pg_dump` also warns of circular
+  foreign keys on nine tables. Restore as a superuser with
+  `PGOPTIONS='-c session_replication_role=replica'`: no ordinary trigger or
+  foreign-key check fires, and the rows arrive exactly as they were dumped.
+
 ### 0.104.0
 
 **Relational data-model graph (DM-1).** Database objects become a graph
