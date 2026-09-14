@@ -18,6 +18,7 @@
  */
 
 #include "postgres.h"
+#include "maludb_varlena.h"
 #include "fmgr.h"
 #include "executor/spi.h"
 #include "funcapi.h"
@@ -55,7 +56,7 @@ decode_vec(bytea *vb, const float **out)
                 (errcode(ERRCODE_INVALID_BINARY_REPRESENTATION),
                  errmsg("vector bytea length %d not multiple of %d",
                         len, MALUDB_VEC_BYTES_PER_ELEMENT)));
-    *out = (const float *) VARDATA_ANY(vb);
+    *out = (const float *) maludb_varlena_aligned(vb);
     return len / MALUDB_VEC_BYTES_PER_ELEMENT;
 }
 

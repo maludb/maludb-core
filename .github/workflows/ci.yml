@@ -195,6 +195,18 @@ jobs:
           Environment="ASAN_OPTIONS=detect_leaks=0:abort_on_error=1:print_stacktrace=1:strict_string_checks=1:check_initialization_order=1"
           Environment="UBSAN_OPTIONS=print_stacktrace=1:halt_on_error=1"
           EOF
+          # Ubuntu's postgresql@ unit starts the server through pg_ctlcluster,
+          # which does not pass the unit's environment on to postgres -- so the
+          # drop-in above never reached a backend, and every backend that loaded
+          # the instrumented maludb_core aborted with "ASan runtime does not
+          # come first in initial library list". pg_ctlcluster reads this file
+          # instead.
+          printf "LD_PRELOAD = '%s'\nASAN_OPTIONS = '%s'\nUBSAN_OPTIONS = '%s'\n" \
+            "${ASAN_SO}" \
+            "detect_leaks=0:abort_on_error=1:print_stacktrace=1:strict_string_checks=1:check_initialization_order=1" \
+            "print_stacktrace=1:halt_on_error=1" \
+            | sudo tee -a /etc/postgresql/17/main/environment >/dev/null
+          sudo cat /etc/postgresql/17/main/environment
           sudo systemctl daemon-reload
           sudo systemctl restart postgresql@17-main
           # Give the cluster a moment to be ready after restart.
@@ -225,7 +237,12 @@ jobs:
 
       - name: Capture PG log on failure
         if: failure()
-        run: sudo journalctl -u postgresql@17-main --no-pager -n 500 || true
+        # The sanitizer's own report goes to the server's stderr, which the
+        # Debian/Ubuntu cluster wrapper sends to this file rather than the
+        # journal -- without it the job fails with no reason shown.
+        run: |
+          sudo journalctl -u postgresql@17-main --no-pager -n 500 || true
+          sudo tail -n 400 /var/log/postgresql/postgresql-17-main.log || true
 
   # ---------------------------------------------------------------------
   # clang-tidy + scan-build over src/. Reports only — not gating yet.

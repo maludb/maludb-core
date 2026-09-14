@@ -16,6 +16,7 @@
  */
 
 #include "postgres.h"
+#include "maludb_varlena.h"
 #include "fmgr.h"
 #include "utils/array.h"
 #include "utils/builtins.h"
@@ -106,7 +107,7 @@ maludb_vector_out(PG_FUNCTION_ARGS)
 {
     bytea          *vb   = PG_GETARG_BYTEA_PP(0);
     int32           len  = VARSIZE_ANY_EXHDR(vb);
-    const float    *data = (const float *) VARDATA_ANY(vb);
+    const float    *data = (const float *) maludb_varlena_aligned(vb);
     int32           dim;
     StringInfoData  buf;
 
