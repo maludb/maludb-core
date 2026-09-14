@@ -225,7 +225,12 @@ jobs:
 
       - name: Capture PG log on failure
         if: failure()
-        run: sudo journalctl -u postgresql@17-main --no-pager -n 500 || true
+        # The sanitizer's own report goes to the server's stderr, which the
+        # Debian/Ubuntu cluster wrapper sends to this file rather than the
+        # journal -- without it the job fails with no reason shown.
+        run: |
+          sudo journalctl -u postgresql@17-main --no-pager -n 500 || true
+          sudo tail -n 400 /var/log/postgresql/postgresql-17-main.log || true
 
   # ---------------------------------------------------------------------
   # clang-tidy + scan-build over src/. Reports only — not gating yet.
