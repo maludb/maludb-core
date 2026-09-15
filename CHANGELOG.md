@@ -7,6 +7,43 @@ versions correspond to the extension migration chain
 
 ## Unreleased
 
+### 0.105.2
+
+**Deleting memory data is no longer quadratic** (#33).
+`malu$svpor_statement.source_package_id` references `malu$source_package`
+`ON DELETE SET NULL` and had no index, so PostgreSQL's per-row foreign-key check
+scanned the whole statement table for every deleted source package.
+`maludb_upload_document` followed by `maludb_memory_ingest_edge` makes one
+source package and one statement per item, so deleting a memory schema's data
+cost items × statements. Measured: 229 s for 32,000 items, and 80 million rows
+read at 8,000; with the index, 65 s in one transaction and 56 s batched.
+
+The index is partial (`WHERE source_package_id IS NOT NULL`).
+
+**Two more from the same audit, on paths the extension itself deletes in bulk,**
+each measured quadratic without its index:
+
+- `malu$community_membership (community_id)`. `_community_replace_for_schema`
+  deletes every community in a namespace, and the cascade looks memberships up
+  by `community_id`, which only an `owner_schema`-led index covered. Replacing
+  4,000 communities of 20 members took 47 s; with the index, 0.29 s.
+- `malu$ann_delta (chunk_id)`. Deleting a vector compartment cascades to its
+  chunks, and each chunk's check looks up `ann_delta` by `chunk_id`, which the
+  `(compartment_id, chunk_id)` primary key cannot serve. A 20,000-chunk
+  compartment with an ANN delta took 38 s to delete; with the index, 0.62 s.
+
+Building each index during `ALTER EXTENSION maludb_core UPDATE` holds a SHARE
+lock on its table, so writes to it wait on a database holding many rows there;
+reads do not.
+
+A new regress test, `fk_index_coverage`, checks that a foreign key's own query
+plan uses its index, and lists every foreign key that still has no index a
+lookup can use: 102 of 230. The audit on #33 found no bulk-delete path in the
+extension for any of them. Their parents are tombstoned rather than deleted,
+removed one row at a time, or removed only when a whole schema's rows are. A new
+unindexed foreign key changes that list, so it is seen in review rather than
+found in production.
+
 ### 0.105.1
 
 **`malu_vector` text output reads back exactly** (#31). Elements were printed
