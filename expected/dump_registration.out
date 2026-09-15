@@ -11,7 +11,7 @@ SET client_min_messages = WARNING;
 CREATE EXTENSION maludb_core CASCADE;
 SELECT maludb_core.maludb_core_version();
 maludb_core_version
-0.105.1
+0.105.2
 (1 row)
 -- The five tables deliberately not registered: three superuser-only
 -- catalogues and two per-database secrets a dump must never hold.

@@ -7,6 +7,28 @@ versions correspond to the extension migration chain
 
 ## Unreleased
 
+### 0.105.2
+
+**Deleting memory data is no longer quadratic** (#33).
+`malu$svpor_statement.source_package_id` references `malu$source_package`
+`ON DELETE SET NULL` and had no index, so PostgreSQL's per-row foreign-key check
+scanned the whole statement table for every deleted source package.
+`maludb_upload_document` followed by `maludb_memory_ingest_edge` makes one
+source package and one statement per item, so deleting a memory schema's data
+cost items × statements. Measured: 229 s for 32,000 items, and 80 million rows
+read at 8,000; with the index, 65 s in one transaction and 56 s batched.
+
+The index is partial (`WHERE source_package_id IS NOT NULL`). Building it during
+`ALTER EXTENSION maludb_core UPDATE` holds a SHARE lock on
+`malu$svpor_statement`, so writes to that table wait on a database that holds
+many statements; reads do not.
+
+A new regress test, `fk_index_coverage`, checks that the foreign key's own
+query plan uses the index, and lists every foreign key that still has no index
+a lookup can use — 104 of 230. Most have parents that are small or rarely
+deleted; a new unindexed foreign key changes that list, so it is seen in review
+rather than found in production.
+
 ### 0.105.1
 
 **`malu_vector` text output reads back exactly** (#31). Elements were printed

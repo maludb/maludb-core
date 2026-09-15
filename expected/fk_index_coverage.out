@@ -1,0 +1,172 @@
+\set ECHO all
+\pset format unaligned
+SET client_min_messages = WARNING;
+-- 0.105.2 (issue #33): foreign keys and the indexes their checks need.
+-- PostgreSQL checks a foreign key once per deleted or re-keyed parent row. With no
+-- index that a lookup on the referencing columns can use, each check scans the
+-- child table, and deleting many parents costs parents x child rows.
+--
+-- A key counts as covered when an index's first column is one of its referencing
+-- columns other than owner_schema, or owner_schema followed by one of them. An
+-- index led by owner_schema alone matches every row of the schema, so a
+-- schema-scoped delete gains nothing from it.
+CREATE TEMP VIEW fk_lookup AS
+SELECT cl.relname AS child, rf.relname AS parent,
+       (SELECT string_agg(a.attname, ',' ORDER BY k.ord)
+          FROM unnest(c.conkey) WITH ORDINALITY k(n, ord)
+          JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = k.n) AS cols,
+       CASE c.confdeltype WHEN 'a' THEN 'no action' WHEN 'r' THEN 'restrict'
+            WHEN 'c' THEN 'cascade' WHEN 'n' THEN 'set null' ELSE 'set default' END AS on_delete,
+       EXISTS (SELECT 1 FROM pg_index i
+                WHERE i.indrelid = c.conrelid AND i.indkey[0] = ANY (c.conkey)
+                  AND (SELECT attname FROM pg_attribute
+                        WHERE attrelid = c.conrelid AND attnum = i.indkey[0]) <> 'owner_schema')
+       OR EXISTS (SELECT 1 FROM pg_index i
+                   WHERE i.indrelid = c.conrelid AND array_length(c.conkey, 1) > 1
+                     AND i.indkey[0] = ANY (c.conkey) AND i.indkey[1] = ANY (c.conkey)) AS covered
+  FROM pg_constraint c
+  JOIN pg_class cl ON cl.oid = c.conrelid
+  JOIN pg_class rf ON rf.oid = c.confrelid
+ WHERE c.contype = 'f' AND cl.relnamespace = 'maludb_core'::regnamespace;
+-- The key 0.105.2 indexes: deleting a source package no longer scans every statement.
+SELECT covered FROM fk_lookup
+ WHERE child = 'malu$svpor_statement' AND cols = 'source_package_id';
+covered
+t
+(1 row)
+-- And the check itself uses it. This is the shape of the query PostgreSQL runs per
+-- deleted source package, as a generic plan; with sequential scans off, a plan that
+-- still scans means the index cannot serve it.
+SET enable_seqscan = off;
+SET plan_cache_mode = force_generic_plan;
+PREPARE fk_check(bigint) AS
+    SELECT 1 FROM ONLY maludb_core."malu$svpor_statement" x WHERE $1 = source_package_id FOR KEY SHARE OF x;
+CREATE FUNCTION pg_temp.fk_check_plan() RETURNS text LANGUAGE plpgsql AS $plan$
+DECLARE line text; plan text := '';
+BEGIN
+    FOR line IN EXECUTE 'EXPLAIN (COSTS OFF) EXECUTE fk_check(1)' LOOP
+        plan := plan || line || E'\n';
+    END LOOP;
+    RETURN plan;
+END
+$plan$;
+SELECT position('Seq Scan' IN pg_temp.fk_check_plan()) = 0 AS uses_index;
+uses_index
+t
+(1 row)
+RESET enable_seqscan;
+RESET plan_cache_mode;
+DEALLOCATE fk_check;
+-- Every foreign key still without such an index. A new unindexed key changes this
+-- list: index it, or record here why its parents are never deleted in bulk.
+SELECT child, cols, parent, on_delete FROM fk_lookup WHERE NOT covered ORDER BY child, cols, parent;
+child|cols|parent|on_delete
+malu$account_role|role_id|malu$role|cascade
+malu$active_memory_pool_member|added_account_id|malu$account|set null
+malu$active_memory_pool_member|owner_schema,promoted_from_member_id|malu$active_memory_pool_member|set null
+malu$active_memory_pool_member|promoted_from_member_id|malu$active_memory_pool_member|set null
+malu$ann_delta|chunk_id|malu$vector_chunk|cascade
+malu$bound_prompt|account_id|malu$account|set null
+malu$bound_prompt|render_id|malu$prompt_render|set null
+malu$bound_prompt|session_id|malu$session|set null
+malu$budget_policy|scope_account_id|malu$account|cascade
+malu$budget_policy|scope_template_id|malu$prompt_template|cascade
+malu$chat_index_tree|model_alias_id|malu$model_alias|set null
+malu$chat_index_tree|prompt_template_id|malu$prompt_template|set null
+malu$chat_index_tree|superseded_by|malu$chat_index_tree|set null
+malu$chat_message|model_request_id|malu$model_request|set null
+malu$chat_message|model_response_id|malu$model_response|set null
+malu$chat_session|account_id|malu$account|set null
+malu$chat_session|model_session_id|malu$session|set null
+malu$chat_session|primary_project_subject_id|malu$svpor_subject|set null
+malu$claim|svpor_predicate_id|malu$svpor_predicate|set null
+malu$claim|svpor_verb_id|malu$svpor_verb|set null
+malu$community_membership|community_id|malu$community|cascade
+malu$derivation_ledger|model_alias_id|malu$model_alias|set null
+malu$derivation_ledger|prompt_template_id|malu$prompt_template|set null
+malu$document|owner_schema,primary_project_id|malu$svpor_subject|set null
+malu$document|primary_project_id|malu$svpor_subject|set null
+malu$document|source_type|malu$source_type|no action
+malu$document_svpor_hint|project_subject_id|malu$svpor_subject|set null
+malu$document_svpor_hint|subject_id|malu$svpor_subject|set null
+malu$document_svpor_hint|verb_id|malu$svpor_verb|set null
+malu$embedding_adapter|target_space_id|malu$embedding_space|restrict
+malu$embedding_output|derivation_id|malu$derivation_ledger|set null
+malu$embedding_space|model_alias_id|malu$model_alias|set null
+malu$event_delivery|event_id|malu$event|cascade
+malu$event_subscription|account_id|malu$account|cascade
+malu$fact|svpor_predicate_id|malu$svpor_predicate|set null
+malu$fact|svpor_verb_id|malu$svpor_verb|set null
+malu$index_migration|adapter_id|malu$embedding_adapter|set null
+malu$index_migration|source_space_id|malu$embedding_space|restrict
+malu$index_migration|target_space_id|malu$embedding_space|restrict
+malu$ingestion_connector|source_type|malu$source_type|no action
+malu$local_model_capability|model_alias_id|malu$model_alias|cascade
+malu$memory|consolidated_into_memory_id|malu$memory|set null
+malu$memory|owner_schema,consolidated_into_memory_id|malu$memory|set null
+malu$model_alias|provider_id|malu$model_provider|restrict
+malu$model_registry|embedding_space_id|malu$embedding_space|restrict
+malu$model_registry|model_alias_id|malu$model_alias|restrict
+malu$model_request|alias_id|malu$model_alias|restrict
+malu$model_request|owner_schema,alias_id|malu$model_alias|restrict
+malu$model_request|owner_schema,prompt_render_id|malu$prompt_render|set null
+malu$model_request|owner_schema,session_id|malu$session|set null
+malu$model_request|prompt_render_id|malu$prompt_render|set null
+malu$model_request|session_id|malu$session|set null
+malu$model_response|cached_from_request_id|malu$model_request|set null
+malu$page_index_tree|model_alias_id|malu$model_alias|set null
+malu$page_index_tree|prompt_template_id|malu$prompt_template|set null
+malu$pending_claim|promoted_claim_id|malu$claim|set null
+malu$prompt_render|account_id|malu$account|set null
+malu$prompt_render|owner_schema,session_id|malu$session|cascade
+malu$prompt_render|owner_schema,template_id|malu$prompt_template|restrict
+malu$prompt_render|session_id|malu$session|cascade
+malu$prompt_render|template_id|malu$prompt_template|restrict
+malu$prompt_template|approved_by_account_id|malu$account|set null
+malu$prompt_template|owner_account_id|malu$account|set null
+malu$prompt_template|safety_policy_id|malu$safety_policy|set null
+malu$queue|dlq_queue_id|malu$queue|set null
+malu$relationship_type|inverse_of|malu$relationship_type|no action
+malu$rest_invocation|token_id|malu$auth_token|set null
+malu$retry_policy|provider_id|malu$model_provider|cascade
+malu$session|account_id|malu$account|no action
+malu$session|model_alias_id|malu$model_alias|no action
+malu$session|owner_schema,model_alias_id|malu$model_alias|set null
+malu$session|owner_schema,prompt_template_id|malu$prompt_template|set null
+malu$session|prompt_template_id|malu$prompt_template|no action
+malu$skill_execution_record|account_id|malu$account|set null
+malu$skill_execution_record|active_pool_id|malu$active_memory_pool|set null
+malu$skill_execution_record|current_state_id|malu$skill_state|set null
+malu$skill_execution_record|owner_schema,active_pool_id|malu$active_memory_pool|set null
+malu$skill_execution_record|owner_schema,source_context_id|malu$source_package|set null
+malu$skill_execution_record|source_context_id|malu$source_package|set null
+malu$skill_execution_step|owner_schema,state_id|malu$skill_state|restrict
+malu$skill_execution_step|state_id|malu$skill_state|restrict
+malu$skill_file|source_package_id|malu$source_package|restrict
+malu$skill_package|source_owner_schema,source_skill_id|malu$skill_package|set null
+malu$skill_subject|owner_schema,subject_id|malu$svpor_subject|set null
+malu$skill_transition|to_state_id|malu$skill_state|cascade
+malu$skill_verb|owner_schema,verb_id|malu$svpor_verb|set null
+malu$source_object|adapter_id|malu$storage_adapter|restrict
+malu$source_verification|archive_id|malu$verbatim_archive|set null
+malu$svpor_statement|predicate_id|malu$svpor_predicate|set null
+malu$svpor_statement|verb_id|malu$svpor_verb|restrict
+malu$svpor_subject|subject_type|malu$svpor_subject_type|no action
+malu$svpor_verb|verb_type|malu$svpor_verb_type|no action
+malu$vector_compartment|subject_id|malu$vector_subject|restrict
+malu$vector_compartment|verb_id|malu$vector_verb|restrict
+malu$vector_subject|svpor_subject_id|malu$svpor_subject|set null
+malu$vector_verb|svpor_verb_id|malu$svpor_verb|set null
+malu$workflow_cluster_member|owner_schema,trace_id|malu$workflow_trace|cascade
+malu$workflow_cluster_member|trace_id|malu$workflow_trace|cascade
+malu$workflow_step|caused_by_evidence_source_id|malu$source_package|set null
+malu$workflow_step|evidence_mdo_id|malu$memory_detail_object|set null
+malu$workflow_step|evidence_source_id|malu$source_package|set null
+malu$workflow_step|owner_schema,caused_by_evidence_source_id|malu$source_package|set null
+malu$workflow_step|owner_schema,evidence_mdo_id|malu$memory_detail_object|set null
+malu$workflow_step|owner_schema,evidence_source_id|malu$source_package|set null
+(104 rows)
+SELECT count(*) AS uncovered, (SELECT count(*) FROM fk_lookup) AS foreign_keys FROM fk_lookup WHERE NOT covered;
+uncovered|foreign_keys
+104|230
+(1 row)
