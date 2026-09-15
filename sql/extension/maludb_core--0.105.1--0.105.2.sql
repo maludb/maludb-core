@@ -1,7 +1,7 @@
 \echo Use "ALTER EXTENSION maludb_core UPDATE TO '0.105.2'" to load this file. \quit
 
 -- =====================================================================
--- maludb_core 0.105.2  --  index svpor_statement.source_package_id (#33)
+-- maludb_core 0.105.2  --  index the foreign keys bulk deletes need (#33)
 --
 -- malu$svpor_statement.source_package_id references malu$source_package
 -- ON DELETE SET NULL, and nothing indexed it. PostgreSQL checks a foreign key
@@ -16,14 +16,31 @@
 -- Partial: most statements carry no source package, and the check only ever
 -- looks up a non-null key, which a partial index answers.
 --
--- Building it takes a SHARE lock on malu$svpor_statement for the length of the
+-- Building each index takes a SHARE lock on its table for the length of the
 -- build: writes to that table wait during ALTER EXTENSION UPDATE on a
--- database that holds many statements. Reads are unaffected.
+-- database that holds many rows in it. Reads are unaffected.
 -- =====================================================================
 
 CREATE INDEX IF NOT EXISTS "malu$svpor_statement_source_package_idx"
     ON maludb_core."malu$svpor_statement" (source_package_id)
     WHERE source_package_id IS NOT NULL;
+
+-- Two more from the same audit, each on a path the extension itself deletes in
+-- bulk, and each measured quadratic without its index:
+--
+-- _community_replace_for_schema deletes every community in a namespace, and the
+-- cascade to malu$community_membership looks memberships up by community_id,
+-- which only an index led by owner_schema covered: 4,000 communities of 20
+-- members took 47 s to replace, 0.29 s with the index.
+CREATE INDEX IF NOT EXISTS "malu$community_membership_community_idx"
+    ON maludb_core."malu$community_membership" (community_id);
+
+-- Deleting a vector compartment cascades to its chunks, and each deleted chunk
+-- looks up malu$ann_delta by chunk_id, which its primary key (compartment_id,
+-- chunk_id) cannot serve. ann_delta holds rows while an ANN index exists: a
+-- 20,000-chunk compartment took 38 s to delete, 0.62 s with the index.
+CREATE INDEX IF NOT EXISTS "malu$ann_delta_chunk_idx"
+    ON maludb_core."malu$ann_delta" (chunk_id);
 
 CREATE OR REPLACE FUNCTION maludb_core.maludb_core_version() RETURNS text
     LANGUAGE SQL IMMUTABLE PARALLEL SAFE

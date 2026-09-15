@@ -28,12 +28,19 @@ SELECT cl.relname AS child, rf.relname AS parent,
   JOIN pg_class cl ON cl.oid = c.conrelid
   JOIN pg_class rf ON rf.oid = c.confrelid
  WHERE c.contype = 'f' AND cl.relnamespace = 'maludb_core'::regnamespace;
--- The key 0.105.2 indexes: deleting a source package no longer scans every statement.
-SELECT covered FROM fk_lookup
- WHERE child = 'malu$svpor_statement' AND cols = 'source_package_id';
-covered
-t
-(1 row)
+-- The keys 0.105.2 indexes, each on a path that deletes their parents in bulk:
+-- deleting source packages, replacing a namespace's communities, and deleting a
+-- vector compartment's chunks while an ANN delta exists.
+SELECT child, cols, covered FROM fk_lookup
+ WHERE (child, cols) IN (('malu$svpor_statement', 'source_package_id'),
+                         ('malu$community_membership', 'community_id'),
+                         ('malu$ann_delta', 'chunk_id'))
+ ORDER BY child;
+child|cols|covered
+malu$ann_delta|chunk_id|t
+malu$community_membership|community_id|t
+malu$svpor_statement|source_package_id|t
+(3 rows)
 -- And the check itself uses it. This is the shape of the query PostgreSQL runs per
 -- deleted source package, as a generic plan; with sequential scans off, a plan that
 -- still scans means the index cannot serve it.
@@ -57,15 +64,17 @@ t
 RESET enable_seqscan;
 RESET plan_cache_mode;
 DEALLOCATE fk_check;
--- Every foreign key still without such an index. A new unindexed key changes this
--- list: index it, or record here why its parents are never deleted in bulk.
+-- Every foreign key still without such an index. The audit on issue #33 found none
+-- of these has a bulk-delete path in the extension: their parents are never deleted
+-- (tombstoned, or no delete path), removed one row at a time, or removed only when a
+-- whole schema's rows are. A new unindexed key changes this list: index it, or say
+-- here why its parents are never deleted in bulk.
 SELECT child, cols, parent, on_delete FROM fk_lookup WHERE NOT covered ORDER BY child, cols, parent;
 child|cols|parent|on_delete
 malu$account_role|role_id|malu$role|cascade
 malu$active_memory_pool_member|added_account_id|malu$account|set null
 malu$active_memory_pool_member|owner_schema,promoted_from_member_id|malu$active_memory_pool_member|set null
 malu$active_memory_pool_member|promoted_from_member_id|malu$active_memory_pool_member|set null
-malu$ann_delta|chunk_id|malu$vector_chunk|cascade
 malu$bound_prompt|account_id|malu$account|set null
 malu$bound_prompt|render_id|malu$prompt_render|set null
 malu$bound_prompt|session_id|malu$session|set null
@@ -81,7 +90,6 @@ malu$chat_session|model_session_id|malu$session|set null
 malu$chat_session|primary_project_subject_id|malu$svpor_subject|set null
 malu$claim|svpor_predicate_id|malu$svpor_predicate|set null
 malu$claim|svpor_verb_id|malu$svpor_verb|set null
-malu$community_membership|community_id|malu$community|cascade
 malu$derivation_ledger|model_alias_id|malu$model_alias|set null
 malu$derivation_ledger|prompt_template_id|malu$prompt_template|set null
 malu$document|owner_schema,primary_project_id|malu$svpor_subject|set null
@@ -165,8 +173,8 @@ malu$workflow_step|evidence_source_id|malu$source_package|set null
 malu$workflow_step|owner_schema,caused_by_evidence_source_id|malu$source_package|set null
 malu$workflow_step|owner_schema,evidence_mdo_id|malu$memory_detail_object|set null
 malu$workflow_step|owner_schema,evidence_source_id|malu$source_package|set null
-(104 rows)
+(102 rows)
 SELECT count(*) AS uncovered, (SELECT count(*) FROM fk_lookup) AS foreign_keys FROM fk_lookup WHERE NOT covered;
 uncovered|foreign_keys
-104|230
+102|230
 (1 row)

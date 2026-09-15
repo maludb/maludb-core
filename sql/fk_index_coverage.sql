@@ -30,9 +30,14 @@ SELECT cl.relname AS child, rf.relname AS parent,
   JOIN pg_class rf ON rf.oid = c.confrelid
  WHERE c.contype = 'f' AND cl.relnamespace = 'maludb_core'::regnamespace;
 
--- The key 0.105.2 indexes: deleting a source package no longer scans every statement.
-SELECT covered FROM fk_lookup
- WHERE child = 'malu$svpor_statement' AND cols = 'source_package_id';
+-- The keys 0.105.2 indexes, each on a path that deletes their parents in bulk:
+-- deleting source packages, replacing a namespace's communities, and deleting a
+-- vector compartment's chunks while an ANN delta exists.
+SELECT child, cols, covered FROM fk_lookup
+ WHERE (child, cols) IN (('malu$svpor_statement', 'source_package_id'),
+                         ('malu$community_membership', 'community_id'),
+                         ('malu$ann_delta', 'chunk_id'))
+ ORDER BY child;
 
 -- And the check itself uses it. This is the shape of the query PostgreSQL runs per
 -- deleted source package, as a generic plan; with sequential scans off, a plan that
@@ -55,7 +60,10 @@ RESET enable_seqscan;
 RESET plan_cache_mode;
 DEALLOCATE fk_check;
 
--- Every foreign key still without such an index. A new unindexed key changes this
--- list: index it, or record here why its parents are never deleted in bulk.
+-- Every foreign key still without such an index. The audit on issue #33 found none
+-- of these has a bulk-delete path in the extension: their parents are never deleted
+-- (tombstoned, or no delete path), removed one row at a time, or removed only when a
+-- whole schema's rows are. A new unindexed key changes this list: index it, or say
+-- here why its parents are never deleted in bulk.
 SELECT child, cols, parent, on_delete FROM fk_lookup WHERE NOT covered ORDER BY child, cols, parent;
 SELECT count(*) AS uncovered, (SELECT count(*) FROM fk_lookup) AS foreign_keys FROM fk_lookup WHERE NOT covered;
