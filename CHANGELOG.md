@@ -7,6 +7,37 @@ versions correspond to the extension migration chain
 
 ## Unreleased
 
+### 0.105.3
+
+**Text comparisons use their indexes inside functions called with a `name`
+argument** (#35). PL/pgSQL runs a function under the collation of its call's
+arguments and gives it to every collatable parameter and local variable. A
+`name` argument — `OLD.owner_schema` in a trigger, `current_schema()`, a
+`'schema'::name` literal — carries collation "C", which outranks a text
+literal's default. The extension's text columns and their indexes use the
+database collation, and the planner cannot use an index for a comparison under
+another one. So `object_kind = p_object_kind` became a filter over every row
+matching an index's leading `owner_schema`, or a sequential scan.
+
+The worst case was `_embedding_dirty_purge`, which the `malu$svpor_statement`
+delete trigger fires once per row: each call read the whole dirty queue.
+Deleting a memory schema's 32,000 statements spent 51.7 s of 66 s there (13.3
+million blocks). With this release installed the same delete takes 13 s, and
+8,000 → 32,000 items costs 2.8× rather than 7×. `_memory_search_for_schema`
+had the same shape on `namespace`, `subject_name` and `verb_name`, so every
+search filtered all of a schema's compartments.
+
+Every PL/pgSQL and SQL function taking a `name` argument (81) was audited from
+the catalogue for a text parameter or local variable compared to an indexed text
+column. The 17 found now compare with `COLLATE "default"`; for deterministic
+collations equality is unchanged, only index use. Bodies are otherwise identical.
+
+A new regress test, `collation_index_use`, shows the mechanism in a plan and
+lists every comparison of that shape; it lists 34 on 0.105.2 and none now.
+Not covered: a function without a `name` argument that inherits "C" from a
+caller that has one (seen once, a lookup in the small subject-type catalogue,
+where an `OR` on `lower(display_name)` could not use an index anyway).
+
 ### 0.105.2
 
 **Deleting memory data is no longer quadratic** (#33).
