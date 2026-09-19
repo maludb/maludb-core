@@ -1,0 +1,167 @@
+\set ECHO all
+\set VERBOSITY terse
+\pset format unaligned
+SET client_min_messages = WARNING;
+
+CREATE EXTENSION IF NOT EXISTS maludb_core CASCADE;
+SET search_path TO maludb_core, public;
+
+-- =====================================================================
+-- vector_forget -- 0.106.0
+--
+-- A forgotten memory is not recallable:
+--   * a tombstoned chunk is filtered on all three search paths -- before
+--     0.106.0 only local_ann filtered it, so the default 'exact' mode (the C
+--     scan) and 'exact_parallel' returned it for ever;
+--   * maludb_forget_document() removes the document, its chunks, the edges that
+--     carry its words and its source package, and keeps the compartment's
+--     vector_count true;
+--   * deleting a document row by any other route takes its chunks with it;
+--   * a source under legal hold is not forgotten;
+--   * maludb_forget_chunk() removes one chunk.
+-- =====================================================================
+
+DO $body$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'mvf_user') THEN
+        RAISE EXCEPTION 'Refusing to start vector_forget test: role mvf_user already exists';
+    END IF;
+END;
+$body$;
+
+CREATE ROLE mvf_user NOLOGIN;
+GRANT maludb_memory_executor TO mvf_user;
+GRANT USAGE ON SCHEMA maludb_core TO mvf_user;
+GRANT mvf_user TO CURRENT_USER;
+CREATE SCHEMA mvf AUTHORIZATION mvf_user;
+
+SET ROLE mvf_user;
+SET search_path TO mvf, maludb_core, public;
+SELECT object_count > 0 AS enabled FROM maludb_core.enable_memory_schema('mvf');
+
+\set ON_ERROR_STOP on
+
+CREATE FUNCTION mvf.remember(p_title text, p_text text, p_vec text) RETURNS bigint
+LANGUAGE plpgsql AS $fn$
+DECLARE
+    v_doc bigint;
+BEGIN
+    v_doc := mvf.maludb_upload_document(p_title, p_text, 'note');
+    PERFORM mvf.maludb_memory_ingest_edge(
+        p_source_kind => 'document', p_source_id => v_doc,
+        p_subject_text => 'coffee machine', p_verb_text => 'needs',
+        p_embedding => p_vec::maludb_core.malu_vector, p_embedding_model => 'test-model',
+        p_source_span => p_text, p_namespace => 'org', p_document_id => v_doc);
+    RETURN v_doc;
+END;
+$fn$;
+
+SELECT mvf.remember('descale', 'The coffee machine needs descaling monthly.', '[1, 0, 0]') AS doc_a \gset
+SELECT mvf.remember('filter',  'The coffee machine needs a new filter.',      '[0.9, 0.1, 0]') AS doc_b \gset
+SELECT mvf.remember('beans',   'The coffee machine needs dark roast beans.',  '[0.8, 0.2, 0]') AS doc_c \gset
+SELECT mvf.remember('held',    'The coffee machine needs its warranty kept.', '[0.7, 0.3, 0]') AS doc_d \gset
+
+SELECT source_text FROM maludb_memory_search('[1, 0, 0]'::malu_vector, 'coffee machine', NULL, 'org') ORDER BY rank_no;
+
+-- ---------------------------------------------------------------------
+-- 1. Tombstone one chunk: gone in exact, exact_parallel and local_ann.
+-- ---------------------------------------------------------------------
+RESET ROLE;
+SELECT c.chunk_id AS chunk_a, c.compartment_id AS compartment
+  FROM maludb_core.malu$vector_chunk c WHERE c.document_id = :doc_a \gset
+SELECT maludb_core.tombstone_vector_chunk(:chunk_a);
+
+SELECT search_mode FROM maludb_core.malu$vector_compartment WHERE compartment_id = :compartment;
+SELECT count(*) AS exact_hits, bool_or(chunk_id = :chunk_a) AS tombstoned_returned
+  FROM maludb_core.exact_vector_search_sql(:compartment, '[1, 0, 0]'::malu_vector, 10);
+
+UPDATE maludb_core.malu$vector_compartment SET search_mode = 'exact_parallel' WHERE compartment_id = :compartment;
+SELECT count(*) AS parallel_hits, bool_or(chunk_id = :chunk_a) AS tombstoned_returned
+  FROM maludb_core.exact_vector_search_sql(:compartment, '[1, 0, 0]'::malu_vector, 10);
+
+SELECT maludb_core.ann_build(:compartment) IS NOT NULL AS ann_built;
+SELECT search_mode FROM maludb_core.malu$vector_compartment WHERE compartment_id = :compartment;
+SELECT count(*) AS ann_hits, bool_or(chunk_id = :chunk_a) AS tombstoned_returned
+  FROM maludb_core.exact_vector_search_sql(:compartment, '[1, 0, 0]'::malu_vector, 10);
+
+SET ROLE mvf_user;
+SELECT source_text FROM maludb_memory_search('[1, 0, 0]'::malu_vector, 'coffee machine', NULL, 'org') ORDER BY rank_no;
+
+-- ---------------------------------------------------------------------
+-- 2. Forget a document: chunk, edges, source and document all go; the ANN
+--    index is marked stale and the search simply no longer finds it.
+-- ---------------------------------------------------------------------
+SELECT maludb_forget_document(:doc_b) - 'document_id' AS forgotten;
+SELECT source_text FROM maludb_memory_search('[1, 0, 0]'::malu_vector, 'coffee machine', NULL, 'org') ORDER BY rank_no;
+SELECT (SELECT count(*) FROM maludb_document WHERE document_id = :doc_b) AS documents,
+       (SELECT count(*) FROM maludb_svpor_statement WHERE subject_kind = 'document' AND subject_id = :doc_b) AS edges,
+       (SELECT count(*) FROM maludb_source_package WHERE content_text LIKE '%new filter%') AS sources;
+RESET ROLE;
+SELECT vector_count, ann_index_status FROM maludb_core.malu$vector_compartment WHERE compartment_id = :compartment;
+SET ROLE mvf_user;
+
+\set ON_ERROR_STOP off
+\set VERBOSITY sqlstate
+SELECT maludb_forget_document(:doc_b);                 -- already gone: no_data_found
+UPDATE maludb_source_package SET legal_hold = true, legal_hold_reason = 'warranty dispute'
+ WHERE source_package_id = (SELECT source_package_id FROM maludb_document WHERE document_id = :doc_d);
+SELECT maludb_forget_document(:doc_d);                 -- held: object_not_in_prerequisite_state
+\set VERBOSITY terse
+\set ON_ERROR_STOP on
+SELECT count(*) AS held_document_still_here FROM maludb_document WHERE document_id = :doc_d;
+
+-- ---------------------------------------------------------------------
+-- 3. The old way of deleting a document (what API servers did before this
+--    release) no longer leaves its chunk behind.
+-- ---------------------------------------------------------------------
+DELETE FROM maludb_svpor_statement WHERE subject_kind = 'document' AND subject_id = :doc_c;
+DELETE FROM maludb_document WHERE document_id = :doc_c;
+RESET ROLE;
+SELECT count(*) AS orphan_chunks FROM maludb_core.malu$vector_chunk WHERE document_id = :doc_c;
+SET ROLE mvf_user;
+SELECT source_text FROM maludb_memory_search('[1, 0, 0]'::malu_vector, 'coffee machine', NULL, 'org') ORDER BY rank_no;
+
+-- ---------------------------------------------------------------------
+-- 4. One chunk, by id -- and only this tenant's.
+-- ---------------------------------------------------------------------
+SELECT maludb_forget_chunk(:chunk_a) AS tombstoned_chunk_removed;
+SELECT maludb_forget_chunk(:chunk_a) AS second_time;
+RESET ROLE;
+SELECT count(*) AS tombstones_left FROM maludb_core.malu$vector_tombstone WHERE chunk_id = :chunk_a;
+SELECT vector_count FROM maludb_core.malu$vector_compartment WHERE compartment_id = :compartment;
+
+-- ---------------------------------------------------------------------
+-- Teardown.
+-- ---------------------------------------------------------------------
+RESET ROLE;
+SET search_path TO maludb_core, public;
+DO $body$
+DECLARE
+    v_table text;
+BEGIN
+    DELETE FROM maludb_core."malu$vector_chunk"
+     WHERE compartment_id IN (SELECT compartment_id FROM maludb_core."malu$vector_compartment" WHERE owner_schema = 'mvf');
+    FOREACH v_table IN ARRAY ARRAY[
+        'malu$ann_index', 'malu$vector_compartment', 'malu$vector_subject', 'malu$vector_verb',
+        'malu$pool_presence', 'malu$active_memory_pool',
+        'malu$skill_load_event', 'malu$skill_principal_access', 'malu$skill_file', 'malu$skill_package',
+        'malu$svpor_attribute', 'malu$svpor_statement',
+        'malu$document', 'malu$source_package',
+        'malu$svpor_subject', 'malu$svpor_verb',
+        'malu$principal_scope', 'malu$principal',
+        'malu$enabled_schema_object', 'malu$enabled_schema']
+    LOOP
+        IF v_table = 'malu$ann_index' THEN
+            DELETE FROM maludb_core."malu$ann_index"
+             WHERE compartment_id IN (SELECT compartment_id FROM maludb_core."malu$vector_compartment" WHERE owner_schema = 'mvf');
+            CONTINUE;
+        END IF;
+        EXECUTE format('DELETE FROM maludb_core.%I WHERE %s = $1', v_table,
+                       CASE WHEN v_table LIKE 'malu$enabled%' THEN 'schema_name' ELSE 'owner_schema' END)
+        USING 'mvf'::name;
+    END LOOP;
+END;
+$body$;
+DROP SCHEMA IF EXISTS mvf CASCADE;
+DROP OWNED BY mvf_user;
+DROP ROLE mvf_user;

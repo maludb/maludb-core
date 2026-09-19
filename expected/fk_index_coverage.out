@@ -176,5 +176,5 @@ malu$workflow_step|owner_schema,evidence_source_id|malu$source_package|set null
 (102 rows)
 SELECT count(*) AS uncovered, (SELECT count(*) FROM fk_lookup) AS foreign_keys FROM fk_lookup WHERE NOT covered;
 uncovered|foreign_keys
-102|230
+102|233
 (1 row)

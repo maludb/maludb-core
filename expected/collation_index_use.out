@@ -106,7 +106,7 @@ SELECT count(*) AS functions_taking_name
  WHERE n.nspname = 'maludb_core' AND l.lanname IN ('plpgsql', 'sql')
    AND 'name'::regtype = ANY (p.proargtypes::oid[]);
 functions_taking_name
-81
+98
 (1 row)
 SELECT DISTINCT function_name, column_name, compared_to
   FROM pg_temp.uncollated_comparisons()

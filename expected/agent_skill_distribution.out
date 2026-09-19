@@ -1,9 +1,9 @@
 \set ECHO none
 enable_a
-165
+194
 (1 row)
 enable_b
-165
+194
 (1 row)
 subject_type|category|curated
 skill|entity|t

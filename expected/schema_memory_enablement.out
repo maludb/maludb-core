@@ -174,7 +174,7 @@ ERROR:  enable_memory_schema: refusing to replace unmanaged view sme_block.malud
 CONTEXT:  PL/pgSQL function _memory_schema_assert_object_slot(name,name,text) line 39 at RAISE
 SQL statement "SELECT maludb_core._memory_schema_assert_object_slot(p_schema, 'maludb_document', 'view')"
 PL/pgSQL function _enable_memory_schema_ingest_facade(name) line 7 at PERFORM
-PL/pgSQL function enable_memory_schema(name) line 33 at assignment
+PL/pgSQL function enable_memory_schema(name) line 35 at assignment
 RESET ROLE;
 SET search_path TO maludb_core, public;
 DROP SCHEMA sme_block CASCADE;
@@ -186,7 +186,7 @@ SET search_path TO sme_a, maludb_core, public;
 SELECT object_count AS enable_object_count
 FROM maludb_core.enable_memory_schema();
 enable_object_count
-165
+194
 (1 row)
 SELECT object_count AS enable_refresh_object_count
 FROM maludb_core.enable_memory_schema();
@@ -199,7 +199,7 @@ NOTICE:  drop cascades to view sme_a.maludb_document_with_attributes
 NOTICE:  drop cascades to view sme_a.maludb_episode_with_attributes
 NOTICE:  view "maludb_episode_with_attributes" does not exist, skipping
 enable_refresh_object_count
-165
+194
 (1 row)
 SELECT bool_and(c.oid IS NOT NULL) AS enabled_facades_created
 FROM unnest(ARRAY[
@@ -802,12 +802,11 @@ b_pre_enable_subject_count
 RESET ROLE;
 SET search_path TO maludb_core, public;
 DROP SCHEMA sme_a CASCADE;
-NOTICE:  drop cascades to 158 other objects
+NOTICE:  drop cascades to 176 other objects
 DETAIL:  drop cascades to view sme_a.maludb_verb
 drop cascades to view sme_a.maludb_subject_verb
 drop cascades to function sme_a.maludb_subject_verb_create(text,text,text,integer,text,text)
 drop cascades to function sme_a.maludb_vector_search(text,text,text,malu_vector,integer,text)
-drop cascades to view sme_a.maludb_source_package
 drop cascades to view sme_a.maludb_claim
 drop cascades to view sme_a.maludb_fact
 drop cascades to view sme_a.maludb_memory_detail
@@ -815,7 +814,6 @@ drop cascades to view sme_a.maludb_document_tag
 drop cascades to view sme_a.maludb_document_suggested_tag
 drop cascades to view sme_a.maludb_raw_ingest
 drop cascades to view sme_a.maludb_unapplied_ingest
-drop cascades to view sme_a.maludb_memory_pool
 drop cascades to view sme_a.maludb_memory_pool_member
 drop cascades to view sme_a.maludb_memory_pool_tag
 drop cascades to view sme_a.maludb_memory_pool_access
@@ -824,7 +822,6 @@ drop cascades to view sme_a.maludb_pool_verb
 drop cascades to view sme_a.maludb_pool_subject_verb
 drop cascades to view sme_a.maludb_pool_skill
 drop cascades to view sme_a.maludb_pool_document
-drop cascades to view sme_a.maludb_pool_presence
 drop cascades to function sme_a.maludb_pool_add_named_member(text,text,text,numeric)
 drop cascades to function sme_a.maludb_pool_search(text,text,integer,boolean)
 drop cascades to view sme_a.maludb_prompt
@@ -859,7 +856,6 @@ drop cascades to function sme_a.maludb_document_get(bigint)
 drop cascades to view sme_a.maludb_svpor_relationship
 drop cascades to function sme_a.maludb_svpor_relationship_create(text,bigint,text,bigint,text,text,jsonb,numeric)
 drop cascades to function sme_a.maludb_verb_phrase_search(text)
-drop cascades to view sme_a.maludb_chat_session
 drop cascades to view sme_a.maludb_chat_message
 drop cascades to function sme_a.maludb_chat_start(text,text,text[],text[],text[],jsonb,jsonb)
 drop cascades to function sme_a.maludb_chat_append_message(bigint,text,text,jsonb,jsonb)
@@ -903,7 +899,11 @@ drop cascades to view sme_a.maludb_edge
 drop cascades to function sme_a.maludb_graph_neighbors(text,bigint,text,text[])
 drop cascades to function sme_a.maludb_graph_walk(text,bigint,integer,text,text[])
 drop cascades to view sme_a.maludb_object_embedding
-and 58 other objects (see server log for list)
+drop cascades to function sme_a.maludb_register_object_embedding(text,bigint,bytea,integer,text,text,text,text,text)
+drop cascades to function sme_a.maludb_semantic_search(bytea,text[],integer,text,text)
+drop cascades to function sme_a.maludb_document_graph_backfill()
+drop cascades to function sme_a.maludb_memory_ingest_edge(text,bigint,text,text,jsonb,malu_vector,text,text,text,numeric,text,text,text,bigint,timestamp with time zone,timestamp with time zone,text)
+and 76 other objects (see server log for list)
 DROP SCHEMA sme_b CASCADE;
 DO $body$
 DECLARE

@@ -207,7 +207,9 @@ maludb_exact_vector_search_c(PG_FUNCTION_ARGS)
         const char *q =
             "SELECT c.chunk_id, c.source_text, c.embedding "
             "FROM maludb_core.malu$vector_chunk c "
-            "WHERE c.compartment_id = $1";
+            "WHERE c.compartment_id = $1 "
+            "AND NOT EXISTS (SELECT 1 FROM maludb_core.malu$vector_tombstone t "
+            "                WHERE t.chunk_id = c.chunk_id)";
         Oid     argtypes[1] = { INT8OID };
         Datum   args[1];
 

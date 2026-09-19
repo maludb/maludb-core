@@ -7,6 +7,85 @@ versions correspond to the extension migration chain
 
 ## Unreleased
 
+### 0.106.0
+
+**The engine learns who is asking: principals, scopes and a sensitivity ceiling
+inside a tenant.** Until now a tenant had one axis of isolation, `owner_schema`,
+and nothing inside it — no principal, no scope, and a `sensitivity` column that
+was stored on four tables and filtered on none. A host running many agents and
+people against one tenant was the only thing keeping them apart.
+
+- **Principals are tenant-scoped.** `malu$principal` (`principal_ref` such as
+  `agent:44`, kind, `home_scope`, `max_sensitivity`, `enabled`) and
+  `malu$principal_scope` (read / write grants, soft-revoked). The cluster-wide
+  `malu$account` / `malu$partition` would have shown one tenant's staff to every
+  other. A **scope is a namespace string** — the unit the vector layer has
+  always used; rows written before this release read as `default`.
+- **The session says who is asking**: `maludb_core.principal_ref`,
+  `maludb_core.principal_scopes` (a JSON list that narrows the stored grants and
+  never widens them; unreadable = nothing) and `maludb_core.principal_readonly`.
+  **Unset = unrestricted: every existing caller behaves exactly as before.** A
+  principal that is set but unknown or disabled reads nothing.
+- **Enforced on every path.** `principal_ref` + `scope` on source packages,
+  documents, memories, episodes, chat sessions and pools. Reads: a RESTRICTIVE
+  policy `principal_scope` beside `tenant_owner` (which is untouched), the same
+  predicate inside the two views the extension owns (`maludb_memory`,
+  `maludb_source_package`), and explicit checks in the SECURITY DEFINER workers
+  that bypass row security — `maludb_memory_search` and `maludb_vector_search`
+  refuse a namespace the principal does not hold, `maludb_note_search` filters,
+  `maludb_semantic_search` leaves out the card of an episode out of scope.
+  Writes: a trigger, so they hold through a view, a worker and a plain INSERT
+  alike; a row is stamped with its author whatever the caller claims. A
+  principal-bound session administers no principals.
+- **A document lives in the namespace of its first edge** — so documents written
+  by hosts that already scope by namespace become private without an API change,
+  and the upgrade backfills existing ones. `maludb_set_scope()` moves a document,
+  memory, episode, chat session or pool deliberately.
+- **`sensitivity` is enforced** against the principal's ceiling.
+
+**Forgetting works.** A tombstoned chunk was filtered only on the `local_ann`
+search path: the default `exact` mode (the C scan) and `exact_parallel` returned
+it for ever, nothing deleted a document's chunks (`malu$vector_chunk.document_id`
+is a soft reference), and `tombstone_vector_chunk` had no caller — so **a deleted
+memory stayed recallable**. All three paths now filter tombstones;
+`maludb_forget_document()` removes a document with its chunks, the edges that
+carry its words and its source (refusing under legal hold) and keeps
+`vector_count` true; `maludb_forget_chunk()` removes one chunk; and deleting a
+`malu$document` row by any route takes its chunks with it. **The shared library
+changes** (`src/maludb_search.c`); the new query reads `malu$vector_tombstone`,
+which every database since 0.14.0 has, so other databases on the host keep working.
+
+**Skills.** `review_state` (`proposed` / `approved` / `rejected`) apart from
+`enabled`, and a skill is visible only when both allow it. A skill registered by
+a principal-bound session is a proposal whatever it asks for, carries its
+author's name, retires no parent, and cannot be reviewed by its author
+(`maludb_skill_review`). `malu$skill_principal_access` reserves a skill for named
+principals. `malu$skill_load_event` + `maludb_skill_record_load()` record what
+was loaded, by whom, for which run — and outlive the skill.
+
+**Pools.** Tenant facades `maludb_presence_update` / `_leave` / `_list` (a tenant
+could only read presence before), a roster that returns the cursor and the TTL,
+and a pool's `scope` decides who can see and join it; a principal is present as
+itself.
+
+**`maludb_memory_ingest_extraction(..., p_namespace)`** — the scope of the source
+document and of the events it mints. A five-argument call still resolves.
+
+**After upgrading, re-run `maludb_core.enable_memory_schema('<tenant>')` for
+every tenant** (165 → 194 objects). Until then a tenant keeps its 0.105.3
+facades, which go on working.
+
+The trust boundary is unchanged: a client holding the tenant's Postgres login
+can set the session settings itself — it *is* the tenant. They bind callers who
+reach the engine through a service that sets them per request, as
+`maludb_core.current_account_id` already does. Known limit: subject and
+statement cards are tenant-shared vocabulary, so `maludb_semantic_search` can
+show a bound principal that a *name* exists in another scope.
+
+Regress tests: `principal_scoping`, `vector_forget`, `skill_review_load`,
+`pool_presence_facade` (104 in all). Upgrading a 3,090-episode tenant took
+0.2 s, re-enabling its schema 0.5 s. See `docs/principal-scoping.md`.
+
 ### 0.105.3
 
 **Text comparisons use their indexes inside functions called with a `name`
