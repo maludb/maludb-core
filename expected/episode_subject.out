@@ -208,7 +208,7 @@ episodes_resolved_on_reingest
 SELECT maludb_memory_ingest_extraction(
     '{"episodes": [{"key": "e1", "kind": "meeting", "title": "Old shape"}]}'::jsonb);
 ERROR:  memory_ingest_extraction: the episodes[] section was removed in 0.94.0; emit events as subjects[] entries with occurred_at/occurred_until (see docs/memory-extraction-json-contract.md)
-CONTEXT:  PL/pgSQL function _memory_ingest_extraction_for_schema(name,jsonb,text,bigint,text) line 41 at RAISE
+CONTEXT:  PL/pgSQL function _memory_ingest_extraction_for_schema(name,jsonb,text,bigint,text,text) line 43 at RAISE
 SQL function "maludb_memory_ingest_extraction" statement 1
 -- Deleting the subject row is the canonical delete path: the episode
 -- body cascades away with it.

@@ -1,0 +1,198 @@
+\set ECHO all
+\set VERBOSITY terse
+\pset format unaligned
+SET client_min_messages = WARNING;
+CREATE EXTENSION IF NOT EXISTS maludb_core CASCADE;
+SET search_path TO maludb_core, public;
+-- =====================================================================
+-- skill_review_load -- 0.106.0
+--
+--   * review_state is separate from enabled: a proposed skill is enabled and
+--     still resolves for nobody; approving it makes it visible; rejecting hides it;
+--   * a skill registered by a principal-bound session is a proposal whatever it
+--     asks for, carries its author's name, retires nothing, and its author
+--     cannot review it;
+--   * a principal grant reserves a skill for that principal (for bound
+--     sessions; the tenant itself still sees its own skills);
+--   * a load is recorded with name, version, hash, principal and run -- and
+--     only for a skill the caller could actually load.
+-- =====================================================================
+DO $body$
+BEGIN
+    IF EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = 'msk_user') THEN
+        RAISE EXCEPTION 'Refusing to start skill_review_load test: role msk_user already exists';
+    END IF;
+END;
+$body$;
+CREATE ROLE msk_user NOLOGIN;
+GRANT maludb_memory_executor TO msk_user;
+GRANT USAGE ON SCHEMA maludb_core TO msk_user;
+GRANT msk_user TO CURRENT_USER;
+CREATE SCHEMA msk AUTHORIZATION msk_user;
+SET ROLE msk_user;
+SET search_path TO msk, maludb_core, public;
+SELECT object_count > 0 AS enabled FROM maludb_core.enable_memory_schema('msk');
+enabled
+t
+(1 row)
+\set ON_ERROR_STOP on
+SELECT maludb_principal_upsert('agent:44', 'agent', 'Sasha', 'agent:44') > 0 AS sasha;
+sasha
+t
+(1 row)
+SELECT maludb_principal_upsert('agent:45', 'agent', 'Seamus', 'agent:45') > 0 AS seamus;
+seamus
+t
+(1 row)
+SELECT maludb_principal_upsert('member:1', 'human', 'Owner', 'member:1') > 0 AS owner;
+owner
+t
+(1 row)
+-- ---------------------------------------------------------------------
+-- 1. The tenant registers a skill: approved, visible, as before.
+-- ---------------------------------------------------------------------
+SELECT (maludb_skill_register('file-a-vendor-bill', '# File a vendor bill' || E'\n' || 'Step 1.', repeat('a', 64),
+                              'How to file a vendor bill') ->> 'skill_id')::bigint AS skill_v1 \gset
+SELECT skill_name, enabled, review_state, proposed_by_principal FROM maludb_skill ORDER BY skill_id;
+skill_name|enabled|review_state|proposed_by_principal
+file-a-vendor-bill|t|approved|
+(1 row)
+SELECT count(*) AS tenant_resolves FROM maludb_skill_get('msk', :skill_v1);
+tenant_resolves
+1
+(1 row)
+-- ---------------------------------------------------------------------
+-- 2. Sasha writes a revision: a proposal, enabled yet invisible, and v1 stays.
+-- ---------------------------------------------------------------------
+SET maludb_core.principal_ref = 'agent:44';
+SELECT (maludb_skill_register('file-a-vendor-bill', '# File a vendor bill' || E'\n' || 'Step 1, improved.', repeat('b', 64),
+                              'How to file a vendor bill', '{}'::jsonb, '1.1.0',
+                              p_parent_owner_schema => 'msk', p_parent_skill_id => :skill_v1,
+                              p_materially_different => false) ->> 'skill_id')::bigint AS skill_v2 \gset
+SELECT version, enabled, review_state, proposed_by_principal FROM maludb_skill ORDER BY skill_id;
+version|enabled|review_state|proposed_by_principal
+aaaaaaaaaaaa|t|approved|
+1.1.0|t|proposed|agent:44
+(2 rows)
+SELECT count(*) AS proposal_resolves_for_author FROM maludb_skill_get('msk', :skill_v2);
+proposal_resolves_for_author
+0
+(1 row)
+RESET maludb_core.principal_ref;
+SELECT count(*) AS proposal_resolves_for_tenant FROM maludb_skill_get('msk', :skill_v2);
+proposal_resolves_for_tenant
+0
+(1 row)
+\set ON_ERROR_STOP off
+SET maludb_core.principal_ref = 'agent:44';
+SELECT maludb_skill_review(:skill_v2, 'approved');                       -- her own proposal
+ERROR:  skill_review: agent:44 proposed skill file-a-vendor-bill and cannot review it
+UPDATE maludb_skill SET review_state = 'approved' WHERE skill_id = :skill_v2;   -- nor by the back door
+ERROR:  principal agent:44 proposed skill file-a-vendor-bill and cannot review it
+RESET maludb_core.principal_ref;
+SELECT maludb_skill_review(:skill_v2, 'approved', 'agent:44');           -- nor in someone's mouth
+ERROR:  skill_review: agent:44 proposed skill file-a-vendor-bill and cannot review it
+SELECT maludb_skill_review(:skill_v2, 'maybe');
+ERROR:  skill_review: decision must be approved, rejected or proposed
+\set ON_ERROR_STOP on
+-- ---------------------------------------------------------------------
+-- 3. The owner approves it, for its author only.
+-- ---------------------------------------------------------------------
+SELECT maludb_skill_review(:skill_v2, 'approved', 'member:1', 'reads well') - 'reviewed_at' - 'skill_id' AS reviewed;
+reviewed
+{"enabled": true, "version": "1.1.0", "skill_name": "file-a-vendor-bill", "review_note": "reads well", "reviewed_by": "member:1", "review_state": "approved", "proposed_by_principal": "agent:44"}
+(1 row)
+SELECT maludb_skill_grant_principal(:skill_v2, 'agent:44') > 0 AS reserved_for_sasha;
+reserved_for_sasha
+t
+(1 row)
+SET maludb_core.principal_ref = 'agent:44';
+SELECT count(*) AS sasha_resolves FROM maludb_skill_get('msk', :skill_v2);
+sasha_resolves
+1
+(1 row)
+SET maludb_core.principal_ref = 'agent:45';
+SELECT count(*) AS seamus_resolves FROM maludb_skill_get('msk', :skill_v2);
+seamus_resolves
+0
+(1 row)
+SELECT count(*) AS seamus_resolves_v1 FROM maludb_skill_get('msk', :skill_v1);
+seamus_resolves_v1
+1
+(1 row)
+\set ON_ERROR_STOP off
+\set VERBOSITY sqlstate
+SELECT maludb_skill_record_load(:skill_v2, 'run:14');                    -- cannot load what he cannot see: no_data_found
+ERROR:  P0002
+\set VERBOSITY terse
+SELECT maludb_skill_grant_principal(:skill_v2, 'agent:45');              -- nor grant it to himself
+ERROR:  a session bound to principal agent:45 cannot change malu$skill_principal_access
+\set ON_ERROR_STOP on
+-- ---------------------------------------------------------------------
+-- 4. Loads are recorded; a bound session is recorded as itself.
+-- ---------------------------------------------------------------------
+SET maludb_core.principal_ref = 'agent:44';
+SELECT maludb_skill_record_load(:skill_v2, 'run:13', 'member:1') > 0 AS sasha_load;
+sasha_load
+t
+(1 row)
+RESET maludb_core.principal_ref;
+SELECT maludb_skill_record_load(:skill_v1, 'run:15', 'agent:45', NULL, '{"via": "down-sync"}') > 0 AS runner_load;
+runner_load
+t
+(1 row)
+SELECT skill_name, version, left(bundle_hash, 4) AS hash, principal_ref, run_ref, metadata_jsonb
+  FROM maludb_skill_load_event ORDER BY load_event_id;
+skill_name|version|hash|principal_ref|run_ref|metadata_jsonb
+file-a-vendor-bill|1.1.0|bbbb|agent:44|run:13|{}
+file-a-vendor-bill|aaaaaaaaaaaa|aaaa|agent:45|run:15|{"via": "down-sync"}
+(2 rows)
+-- ---------------------------------------------------------------------
+-- 5. Rejected = hidden, enabled or not; the record of loads outlives the skill.
+-- ---------------------------------------------------------------------
+SELECT maludb_skill_review(:skill_v2, 'rejected', 'member:1', 'superseded') ->> 'review_state' AS now;
+now
+rejected
+(1 row)
+SET maludb_core.principal_ref = 'agent:44';
+SELECT count(*) AS rejected_resolves FROM maludb_skill_get('msk', :skill_v2);
+rejected_resolves
+0
+(1 row)
+RESET maludb_core.principal_ref;
+SELECT maludb_skill_revoke_principal(:skill_v2, 'agent:44') AS unreserved;
+unreserved
+t
+(1 row)
+DELETE FROM maludb_skill WHERE skill_id = :skill_v2;
+SELECT skill_name, version, skill_id IS NULL AS skill_gone, run_ref FROM maludb_skill_load_event ORDER BY load_event_id;
+skill_name|version|skill_gone|run_ref
+file-a-vendor-bill|1.1.0|t|run:13
+file-a-vendor-bill|aaaaaaaaaaaa|f|run:15
+(2 rows)
+-- ---------------------------------------------------------------------
+-- Teardown.
+-- ---------------------------------------------------------------------
+RESET ROLE;
+SET search_path TO maludb_core, public;
+DO $body$
+DECLARE
+    v_table text;
+BEGIN
+    FOREACH v_table IN ARRAY ARRAY[
+        'malu$pool_presence', 'malu$active_memory_pool',
+        'malu$skill_load_event', 'malu$skill_principal_access', 'malu$skill_keyword',
+        'malu$skill_file', 'malu$skill_package',
+        'malu$source_package',
+        'malu$principal_scope', 'malu$principal',
+        'malu$enabled_schema_object', 'malu$enabled_schema']
+    LOOP
+        EXECUTE format('DELETE FROM maludb_core.%I WHERE %s = $1', v_table,
+                       CASE WHEN v_table LIKE 'malu$enabled%' THEN 'schema_name' ELSE 'owner_schema' END)
+        USING 'msk'::name;
+    END LOOP;
+END;
+$body$;
+DROP SCHEMA IF EXISTS msk CASCADE;
+DROP OWNED BY msk_user;
+DROP ROLE msk_user;
