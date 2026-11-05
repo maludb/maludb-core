@@ -5,6 +5,12 @@ knowledge sharing, and contextual recall. Built in **C** as PostgreSQL
 extensions on **Ubuntu 24.04 LTS**, with **PostgreSQL 17** (PGDG) as
 the foundation.
 
+This repository is the Ubuntu 24.04 / PostgreSQL 17 line of the engine,
+kept for the hosting VMs that run it: fixes only. New work goes to
+[maludb/maludb-core-26](https://github.com/maludb/maludb-core-26)
+(Ubuntu 26.04, PostgreSQL 18), which MaluOS carries as packages; the
+operator's path is the [handbook](https://github.com/maludb/maluos-docs).
+
 **New here?** Start with the [executive summary](executive-summary.md) —
 what MaluDB is, the memory model, and why retrieval is relational/graph-first
 with vector search reserved for the query classes that genuinely need it.
